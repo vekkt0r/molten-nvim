@@ -182,6 +182,71 @@ class ImageNvimCanvas(Canvas):
     def remove_image(self, identifier: str) -> None:
         self.to_make_invisible.add(identifier)
 
+class SnacksCanvas(Canvas):
+    nvim: Nvim
+    to_make_visible: Set[str]
+    to_make_invisible: Set[str]
+    visible: Set[str]
+
+    def __init__(self, nvim: Nvim):
+        self.nvim = nvim
+        self.visible = set()
+        self.to_make_visible = set()
+        self.to_make_invisible = set()
+        self.next_id = 0
+
+    def init(self) -> None:
+        self.nvim.exec_lua("_snacks = require('load_snacks_nvim').snacks_api")
+        self.snacks_api = self.nvim.lua._snacks
+
+    def deinit(self) -> None:
+        self.snacks_api.clear_all()
+
+    def present(self) -> None:
+        # images to both show and hide should be ignored
+        to_work_on = self.to_make_visible.difference(
+            self.to_make_visible.intersection(self.to_make_invisible)
+        )
+        self.to_make_invisible.difference_update(self.to_make_visible)
+        for identifier in self.to_make_invisible:
+            self.snacks_api.clear(identifier)
+
+        for identifier in to_work_on:
+            self.snacks_api.render(identifier)
+
+        self.visible.update(self.to_make_visible)
+        self.to_make_invisible.clear()
+        self.to_make_visible.clear()
+
+    def img_size(self, identifier: str) -> Dict[str, int]:
+        return self.snacks_api.image_size(identifier)
+
+    def add_image(
+        self,
+        path: str,
+        identifier: str,
+        x: int,
+        y: int,
+        bufnr: int,
+        winnr: int | None = None,
+    ) -> str:
+        img = self.snacks_api.from_file(
+            path,
+            {
+                "id": identifier,
+                "buffer": bufnr,
+                "x": x,
+                "y": y,
+                "max_width": 110,
+                "max_height": 60,
+            },
+        )
+        self.to_make_visible.add(img)
+        return img
+
+    def remove_image(self, identifier: str) -> None:
+        self.to_make_invisible.add(identifier)
+
 
 class WeztermCanvas(Canvas):
     """A canvas for using Wezterm's imgcat functionality to render images/plots"""
@@ -268,6 +333,8 @@ def get_canvas_given_provider(
         return NoCanvas()
     elif name == "image.nvim":
         return ImageNvimCanvas(nvim)
+    elif name == "snacks.nvim":
+        return SnacksCanvas(nvim)
     elif name == "wezterm":
         if options.auto_open_output:
             raise MoltenException(
